@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 use std::fmt::Display;
-use std::fs::File;
+use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, Write};
-use std::path::{is_separator, Path, PathBuf};
+use std::path::{Path, PathBuf};
 
 pub struct BlockId {
     file_name: String,
@@ -14,8 +14,8 @@ impl BlockId {
         BlockId { file_name: file_name.to_string(), block_num }
     }
 
-    pub fn file_name(&self) -> &str {
-        &self.file_name
+    pub fn file_name(&self) -> String {
+        self.file_name.clone()
     }
 
     pub fn block_num(&self) -> u32 {
@@ -31,7 +31,7 @@ impl PartialEq for BlockId {
 
 impl Display for BlockId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", format!("[file {}, block number {}]", self.file_name, self.block_num))
+        write!(f, "{}", format!("[file {}, block number {}]", self.file_name(), self.block_num()))
     }
 }
 
@@ -130,6 +130,9 @@ struct FileManager {
 
 impl FileManager {
     pub fn new(db_directory: PathBuf, block_size: u32) -> FileManager {
+        if !db_directory.is_dir() {
+            panic!("Database directory is not a directory!");
+        }
         let is_new = std::fs::exists(&db_directory).unwrap_or(false);
         let files = std::fs::read_dir(&db_directory).expect("failed to read directory");
 
@@ -147,32 +150,32 @@ impl FileManager {
         FileManager { db_directory, block_size, is_new, open_file: HashMap::new() }
     }
 
-    pub fn read(&self, block_id: &BlockId, page: &mut Page) -> Result<(), std::io::Error> {
-        let mut file = self.open_file.get(block_id.file_name());
-        if let Some(mut file) = file {
-            file.seek(std::io::SeekFrom::Start(page.block_size as u64)).expect("seek error while reading file");
-            file.read(page.byte_buffer.as_mut_slice())?;
+    pub fn read(&mut self, block_id: &BlockId, page: &mut Page) -> Result<(), std::io::Error> {
+        let mut file = self.open_file(self.db_directory.join(&block_id.file_name()));
+        file.seek(std::io::SeekFrom::Start(page.block_size as u64)).expect("seek error while reading file");
+        file.read(page.byte_buffer.as_mut_slice())?;
 
-            Ok(())
-        } else {
-            Err(std::io::Error::new(std::io::ErrorKind::NotFound, "cannot read file with provided block id"))
-        }
+        Ok(())
     }
 
-    pub fn write(&self, block_id: &BlockId, page: &mut Page) -> Result<(), std::io::Error> {
-        let mut file = self.open_file.get(block_id.file_name());
-        if let Some(mut file) = file {
-            file.seek(std::io::SeekFrom::Start(page.block_size as u64)).expect("seek error while reading file");
-            file.write(page.byte_buffer.as_mut_slice())?;
+    pub fn write(&mut self, block_id: &BlockId, page: &mut Page) -> Result<(), std::io::Error> {
+        let mut file = self.open_file(self.db_directory.join(&block_id.file_name()));
+        file.seek(std::io::SeekFrom::Start(page.block_size as u64)).expect("seek error while reading file");
+        file.write(page.byte_buffer.as_mut_slice())?;
 
-            Ok(())
-        } else {
-            Err(std::io::Error::new(std::io::ErrorKind::NotFound, "cannot read file with provided block id"))
-        }
+        Ok(())
     }
 
-    pub fn append(&self, file_name: &str) -> BlockId {
-        todo!()
+    pub fn append(&mut self, file_name: String) -> BlockId {
+        let path = self.db_directory.join(&file_name);
+        let mut file = self.open_file(path);
+        let block_number = file.metadata().expect("failed to get metadata").len() as u32;
+
+        file.seek(std::io::SeekFrom::End((self.block_size * block_number) as i64)).expect("seek error");
+        let bytes = vec!(0; self.block_size as usize);
+        file.write(bytes.as_slice()).expect("failed to write file");
+
+        BlockId::new(&file_name, block_number)
     }
 
     pub fn is_new(&self) -> bool {
@@ -191,6 +194,25 @@ impl FileManager {
     pub fn block_size(&self) -> usize {
         self.block_size as usize
     }
+
+    fn open_file(&mut self, file_name: PathBuf) -> File {
+        let filename = file_name.to_str().unwrap().to_string();
+        match self.open_file.get(filename.as_str()) {
+            None => {
+                let file = OpenOptions::new()
+                    .read(true)
+                    .write(true)
+                    .create(true)
+                    .open(file_name)
+                    .expect("failed to open file");
+                self.open_file.insert(filename.clone(), file.try_clone().expect("failed to clone file"));
+                file
+            }
+            Some(file) => {
+                file.try_clone().expect("failed to clone file")
+            }
+        }
+    }
 }
 
 mod tests {
@@ -199,7 +221,7 @@ mod tests {
     #[test]
     fn test_block_id() {
         let bid = BlockId::new("test.file", 10);
-        assert_eq!(bid.file_name(), "test.file");
+        assert_eq!(bid.file_name(), "test.file".to_string());
         assert_eq!(bid.block_num(), 10);
         let bid2= BlockId::new("test.file", 10);
         assert!(bid == bid2);
@@ -228,5 +250,22 @@ mod tests {
     }
 
     #[test]
-    fn test_file_manager() {}
+    fn test_file_manager() {
+        let tmp_dir = TempDir::new("test_file_manager").expect("failed to create temp dir");
+        let mut file_manager = FileManager::new(tmp_dir.path().to_owned(), 10);
+        assert_eq!(file_manager.is_new(), true);
+        let blid = file_manager.append(String::from("test.block"));
+
+        let mut page = Page::builder().block_size(10).buffer(10).build();
+        assert_eq!(page.block_size(), 10);
+        assert_eq!(page.get_bytes(0), Some(b"\0\0\0\0\0\0\0\0\0\0".to_vec().into_boxed_slice()));
+        page.set_bytes(0, Some(b"B"));
+        assert_eq!(page.get_bytes(0), Some(b"B\0\0\0\0\0\0\0\0\0".to_vec().into_boxed_slice()));
+        file_manager.write(&blid, &mut page).expect("failed to write file");
+
+        let mut page2 = Page::builder().block_size(10).buffer(10).build();
+        assert_eq!(page2.get_bytes(0), Some(b"\0\0\0\0\0\0\0\0\0\0".to_vec().into_boxed_slice()));
+        file_manager.read(&blid, &mut page2).expect("failed to read file");
+        assert_eq!(page2.get_bytes(0), Some(b"B\0\0\0\0\0\0\0\0\0".to_vec().into_boxed_slice()));
+    }
 }
