@@ -187,7 +187,7 @@ impl FileManager {
 
     pub fn read(&mut self, block_id: &BlockId, page: &mut Page) -> Result<(), std::io::Error> {
         let mut file = self.open_file(self.db_directory.join(&block_id.file_name()));
-        file.seek(std::io::SeekFrom::Start(page.block_size as u64)).expect("seek error while reading file");
+        file.seek(std::io::SeekFrom::Start((page.block_size * block_id.block_num()) as u64)).expect("seek error while reading file");
         file.read(page.byte_buffer.as_mut_slice())?;
 
         Ok(())
@@ -195,7 +195,7 @@ impl FileManager {
 
     pub fn write(&mut self, block_id: &BlockId, page: &mut Page) -> Result<(), std::io::Error> {
         let mut file = self.open_file(self.db_directory.join(&block_id.file_name()));
-        file.seek(std::io::SeekFrom::Start(page.block_size as u64)).expect("seek error while reading file");
+        file.seek(std::io::SeekFrom::Start((page.block_size * block_id.block_num()) as u64)).expect("seek error while reading file");
         file.write(page.byte_buffer.as_mut_slice())?;
 
         Ok(())
@@ -204,7 +204,7 @@ impl FileManager {
     pub fn append(&mut self, file_name: String) -> BlockId {
         let path = self.db_directory.join(&file_name);
         let mut file = self.open_file(path);
-        let block_number = file.metadata().expect("failed to get metadata").len() as u32;
+        let block_number = (file.metadata().expect("failed to get metadata").len() as u32 / self.block_size);
 
         file.seek(std::io::SeekFrom::End((self.block_size * block_number) as i64)).expect("seek error");
         let bytes = vec!(0; self.block_size as usize);
@@ -291,6 +291,7 @@ mod tests {
         let mut file_manager = FileManager::new(tmp_dir.path().to_owned(), TEST_BLOCK_SIZE);
         assert_eq!(file_manager.is_new(), true);
         let blid = file_manager.append(String::from("test.block"));
+        assert_eq!(blid.block_num(), 0);
 
         let mut page = Page::builder().block_size(TEST_BLOCK_SIZE).with_buffer().build();
         assert_eq!(page.block_size(), 10);
@@ -303,5 +304,9 @@ mod tests {
         assert_eq!(page2.get_bytes(0), Some(b"\0\0\0\0\0\0\0\0\0\0".to_vec().into_boxed_slice()));
         file_manager.read(&blid, &mut page2).expect("failed to read file");
         assert_eq!(page2.get_bytes(0), Some(b"B\0\0\0\0\0\0\0\0\0".to_vec().into_boxed_slice()));
+
+        let blid2 = file_manager.append(String::from("test.block"));
+        assert_eq!(blid2.block_num, 1);
+        file_manager.write(&blid2, &mut page).expect("failed to write file");
     }
 }
