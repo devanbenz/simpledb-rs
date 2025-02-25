@@ -88,6 +88,10 @@ impl Page {
             self.byte_buffer[offset as usize..offset as usize + val.len()].copy_from_slice(val.as_bytes());
         }
     }
+
+    pub fn flush(&mut self) {
+        self.byte_buffer = vec!(0; self.block_size as usize);
+    }
 }
 
 pub struct PageBuilder {
@@ -307,6 +311,26 @@ mod tests {
 
         let blid2 = file_manager.append(String::from("test.block"));
         assert_eq!(blid2.block_num, 1);
-        file_manager.write(&blid2, &mut page).expect("failed to write file");
+
+        let mut page3 = Page::builder().block_size(TEST_BLOCK_SIZE).with_buffer().build();
+        assert_eq!(page3.block_size(), 10);
+        assert_eq!(page3.get_bytes(0), Some(b"\0\0\0\0\0\0\0\0\0\0".to_vec().into_boxed_slice()));
+        page3.set_bytes(0, Some(b"FOO"));
+        assert_eq!(page3.get_bytes(0), Some(b"FOO\0\0\0\0\0\0\0".to_vec().into_boxed_slice()));
+        file_manager.write(&blid2, &mut page3).expect("failed to write file");
+
+        page.flush();
+        page2.flush();
+        assert_eq!(page.get_bytes(0), Some(b"\0\0\0\0\0\0\0\0\0\0".to_vec().into_boxed_slice()));
+        assert_eq!(page2.get_bytes(0), Some(b"\0\0\0\0\0\0\0\0\0\0".to_vec().into_boxed_slice()));
+        file_manager.read(&blid, &mut page).expect("failed to read file");
+        file_manager.read(&blid2, &mut page2).expect("failed to read file");
+        assert_eq!(page.get_bytes(0), Some(b"B\0\0\0\0\0\0\0\0\0".to_vec().into_boxed_slice()));
+        assert_eq!(page2.get_bytes(0), Some(b"FOO\0\0\0\0\0\0\0".to_vec().into_boxed_slice()));
+
+        let mut file = File::open(tmp_dir.path().join(blid.file_name())).expect("failed to open file");
+        let mut buf = vec![];
+        file.read_to_end(&mut buf).expect("failed to read file");
+        assert_eq!(buf, vec![66, 0, 0, 0, 0, 0, 0, 0, 0, 0, 70, 79, 79, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
     }
 }
