@@ -1,1 +1,2 @@
 mod filemanager;
+mod logmanager;
