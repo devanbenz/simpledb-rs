@@ -281,15 +281,12 @@ impl FileManager {
         self.is_new
     }
 
-    pub fn length(&self, file_name: &str) -> Result<usize, std::io::Error> {
+    pub fn length(&self, file_name: &str) -> Option<usize> {
         let file = self.open_file.get(file_name);
         if let Some(file) = file {
-            Ok(file.metadata()?.len() as usize)
+            Some(file.metadata().expect("could not get metadata from file").len() as usize)
         } else {
-            Err(std::io::Error::new(
-                std::io::ErrorKind::NotFound,
-                "file not found",
-            ))
+            None
         }
     }
 

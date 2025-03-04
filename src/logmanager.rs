@@ -19,30 +19,8 @@ impl Iterator for LogManager {
 }
 
 impl LogManager {
-    pub fn new(log_file: String, mut file_manager: FileManager) -> Self {
-        let buf: Vec<u8> = vec![0; file_manager.block_size()];
-        let block_id = match file_manager.length(&log_file) {
-            Ok(file_len) => {
-                let blid = BlockId::new(&log_file, (file_len - 1));
-                let mut log_page = PageBuilder::new().with_log_buffer(buf).build();
-                file_manager
-                    .read(&blid, &mut log_page)
-                    .expect("error reading blockId in to log page");
-                blid
-            }
-            Err(_) => {
-                Self::append_new_block()
-                file_manager.append(&log_file)
-            },
-        };
-        Self {
-            log_file,
-            file_manager,
-            log_page,
-            block_id,
-            latest_lsn: 0,
-            last_lsn: 0,
-        }
+    pub fn builder(log_file: String, mut file_manager: FileManager) -> LogManagerBuilder {
+        LogManagerBuilder::new(log_file, file_manager)
     }
 
     pub fn append(&mut self, rec: Vec<u8>) -> i32 {
@@ -71,32 +49,61 @@ impl LogManager {
             .expect("error writing to log file");
         self.last_lsn = self.latest_lsn;
     }
-
-    fn append_new_block(&mut self) -> BlockId {
-        let blid = self.file_manager.append(&self.log_file);
-        let log_page = PageBuilder::new().with_log_buffer(vec!(0; self.file_manager.block_size())).build();
-        self.log_page = log_page;
-
-        self.log_page
-            .set_int(0, Some(self.file_manager.block_size() as i32));
-        self.file_manager
-            .write(&blid, &mut self.log_page)
-            .expect("error writing to log file");
-        blid
-    }
 }
 
 struct LogManagerBuilder {
     log_file: String,
-    file_manager: FileManager
+    file_manager: FileManager,
+    log_page: Page,
 }
 
 impl LogManagerBuilder {
-    fn new(log_file: String, file_manager: FileManager) -> Self {
-        Self {log_file, file_manager}
+    pub fn new(log_file: String, file_manager: FileManager) -> Self {
+        let mut page = PageBuilder::new().with_log_buffer(vec!(0; file_manager.block_size())).build();
+        Self {log_file, file_manager, log_page: page }
     }
 
-    pub fn build(self) -> LogManager {
-        LogManager::new(self.log_file, self.file_manager)
+    pub fn build(mut self) -> LogManager {
+        let blid = match self.file_manager.length(&self.log_file) {
+            None => self.append_new_block(),
+            Some(file_len) => {
+                if file_len > 0 {
+                    let blid = BlockId::new(&self.log_file, (file_len - 1));
+                    self.file_manager.read(&blid, &mut self.log_page).expect("could not read block id in to page");
+                    blid
+                } else {
+                    self.append_new_block()
+                }
+            }
+        };
+
+        LogManager {
+            log_file: self.log_file,
+            file_manager: self.file_manager,
+            log_page: self.log_page,
+            block_id: blid,
+            latest_lsn: 0,
+            last_lsn: 0
+        }
     }
+
+    fn append_new_block(&mut self) -> BlockId {
+        let blid = self.file_manager.append(&self.log_file);
+        self.log_page.set_int(0, Some(self.file_manager.block_size() as i32));
+        self.file_manager.write(&blid, &mut self.log_page).expect("could not write block id in to log file");
+        blid
+    }
+}
+
+mod tests {
+    use tempdir::TempDir;
+    use super::*;
+    const TEST_BLOCK_SIZE: usize = 4;
+   #[test]
+   fn test_log_manger() {
+       let tmp_dir = TempDir::new("test_log_manager").expect("failed to create temp dir");
+       let file_manager = FileManager::new(tmp_dir.path().to_owned(), TEST_BLOCK_SIZE);
+       let log_manager = LogManager::builder("log.wal".to_string(), file_manager).build();
+       assert_eq!(log_manager.block_id.block_num(), 0);
+   }
 }
