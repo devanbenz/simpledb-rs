@@ -101,17 +101,16 @@ impl Page {
     }
 
     pub fn set_bytes(&mut self, offset: usize, bytes: Option<&[u8]>) {
-        let len_aligned_offset = offset * self.block_size;
+        let len_aligned_offset = offset;
         if let Some(bytes) = bytes {
             if bytes.len() > self.block_size + offset {
                 panic!("out of range");
             }
-            let data_aligned_offset = offset * self.block_size + bytes.len();
+            let data_aligned_offset = offset + size_of::<i32>();
             self.set_int(len_aligned_offset, Some(bytes.len() as i32));
 
-            // Need to add an additional block - len takes up a full integer block.
             self.byte_buffer
-                [len_aligned_offset + self.block_size..data_aligned_offset + self.block_size]
+                [data_aligned_offset..data_aligned_offset + bytes.len()]
                 .copy_from_slice(bytes);
         }
     }

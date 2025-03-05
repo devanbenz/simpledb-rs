@@ -141,4 +141,27 @@ mod tests {
             Some(TEST_BLOCK_SIZE as i32)
         );
     }
+
+    #[test]
+    fn test_log_manger_append() {
+        let tmp_dir = TempDir::new("test_log_manager").expect("failed to create temp dir");
+        let file_manager = FileManager::new(tmp_dir.path().to_owned(), TEST_BLOCK_SIZE);
+        let mut log_manager = LogManager::builder("log.wal".to_string(), file_manager).build();
+        assert_eq!(log_manager.block_id.block_num(), 0);
+        assert_eq!(log_manager.latest_lsn, 0);
+        assert_eq!(log_manager.last_lsn, 0);
+        assert_eq!(
+            log_manager.log_page.get_int(0),
+            Some(TEST_BLOCK_SIZE as i32)
+        );
+
+        log_manager.append("foo".as_bytes().to_vec());
+        assert_eq!(log_manager.latest_lsn, 1);
+        log_manager.append("bar".as_bytes().to_vec());
+        assert_eq!(log_manager.latest_lsn, 2);
+        log_manager.append("fizz".as_bytes().to_vec());
+        assert_eq!(log_manager.latest_lsn, 3);
+        log_manager.append("buzz".as_bytes().to_vec());
+        assert_eq!(log_manager.latest_lsn, 4);
+    }
 }
