@@ -1,5 +1,42 @@
 use crate::filemanager::{BlockId, FileManager, Page, PageBuilder};
 
+pub struct LogIterator {
+    file_manager: FileManager,
+    log_page: Page,
+    block_id: BlockId,
+    current_offset: usize,
+    log_boundary: usize,
+}
+
+impl LogIterator {
+    pub fn builder(mut fm: FileManager, blk: BlockId) -> Self {
+        let b = vec!(0; fm.block_size());
+        let mut p = Page::builder().block_size(fm.block_size()).with_log_buffer(b).build();
+        let current_b = Self::move_to_block(&mut fm, &blk, &mut p);
+        Self {
+            file_manager: fm,
+            log_page: p,
+            block_id: blk,
+            current_offset: current_b,
+            log_boundary: current_b,
+        }
+    }
+
+    fn move_to_block(fm: &mut FileManager, blk: &BlockId, lp: &mut Page) -> usize {
+        fm.read(blk, lp).expect("could not read block in to page");
+        let boundary = lp.get_int(0).expect("could not read boundary in page");
+        boundary as usize
+    }
+}
+
+impl Iterator for LogManager {
+    type Item = u8;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let pos = self.log_page.get_int();
+    }
+}
+
 pub struct LogManager {
     log_file: String,
     file_manager: FileManager,
@@ -7,14 +44,6 @@ pub struct LogManager {
     block_id: BlockId,
     latest_lsn: i32,
     last_lsn: i32,
-}
-
-impl Iterator for LogManager {
-    type Item = u8;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        todo!()
-    }
 }
 
 impl LogManager {
@@ -60,6 +89,7 @@ impl LogManager {
 
     fn append_new_block(&mut self) -> BlockId {
         let blid = self.file_manager.append(&self.log_file);
+        self.log_page.flush();
         self.log_page
             .set_int(0, Some(self.file_manager.block_size() as i32));
         self.file_manager
@@ -161,6 +191,7 @@ mod tests {
         assert_eq!(log_manager.latest_lsn, 2);
         log_manager.append("fizz".as_bytes().to_vec());
         assert_eq!(log_manager.latest_lsn, 3);
+        // This append will flush the log page to disk
         log_manager.append("buzz".as_bytes().to_vec());
         assert_eq!(log_manager.latest_lsn, 4);
     }
