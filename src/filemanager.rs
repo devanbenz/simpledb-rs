@@ -109,8 +109,7 @@ impl Page {
             let data_aligned_offset = offset + size_of::<i32>();
             self.set_int(len_aligned_offset, Some(bytes.len() as i32));
 
-            self.byte_buffer
-                [data_aligned_offset..data_aligned_offset + bytes.len()]
+            self.byte_buffer[data_aligned_offset..data_aligned_offset + bytes.len()]
                 .copy_from_slice(bytes);
         }
     }
@@ -240,10 +239,15 @@ impl FileManager {
 
     pub fn read(&mut self, block_id: &BlockId, page: &mut Page) -> Result<(), std::io::Error> {
         let mut file = self.open_file(self.db_directory.join(&block_id.file_name()));
-        file.seek(std::io::SeekFrom::Start(
+        match file.seek(std::io::SeekFrom::Start(
             (page.block_size * block_id.block_num()) as u64,
-        ))
-        .expect("seek error while reading file");
+        )) {
+            Ok(_) => {}
+            Err(err) => {
+                return Err(err);
+            }
+        }
+
         file.read(page.byte_buffer.as_mut_slice())?;
 
         Ok(())
@@ -283,7 +287,11 @@ impl FileManager {
     pub fn length(&self, file_name: &str) -> Option<usize> {
         let file = self.open_file.get(file_name);
         if let Some(file) = file {
-            Some(file.metadata().expect("could not get metadata from file").len() as usize)
+            Some(
+                file.metadata()
+                    .expect("could not get metadata from file")
+                    .len() as usize,
+            )
         } else {
             None
         }

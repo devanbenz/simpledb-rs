@@ -4,14 +4,17 @@ pub struct LogIterator {
     file_manager: FileManager,
     log_page: Page,
     block_id: BlockId,
-    current_offset: usize,
-    log_boundary: usize,
+    current_offset: i32,
+    log_boundary: i32,
 }
 
 impl LogIterator {
-    pub fn builder(mut fm: FileManager, blk: BlockId) -> Self {
-        let b = vec!(0; fm.block_size());
-        let mut p = Page::builder().block_size(fm.block_size()).with_log_buffer(b).build();
+    pub fn new(mut fm: FileManager, blk: BlockId) -> Self {
+        let b = vec![0; fm.block_size()];
+        let mut p = Page::builder()
+            .block_size(fm.block_size())
+            .with_log_buffer(b)
+            .build();
         let current_b = Self::move_to_block(&mut fm, &blk, &mut p);
         Self {
             file_manager: fm,
@@ -22,18 +25,38 @@ impl LogIterator {
         }
     }
 
-    fn move_to_block(fm: &mut FileManager, blk: &BlockId, lp: &mut Page) -> usize {
+    fn move_to_block(fm: &mut FileManager, blk: &BlockId, lp: &mut Page) -> i32 {
         fm.read(blk, lp).expect("could not read block in to page");
         let boundary = lp.get_int(0).expect("could not read boundary in page");
-        boundary as usize
+        boundary
     }
 }
 
-impl Iterator for LogManager {
-    type Item = u8;
+impl Iterator for LogIterator {
+    type Item = Box<[u8]>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let pos = self.log_page.get_int();
+        let mut blk_size = self
+            .log_page
+            .get_int(self.current_offset as usize)
+            .expect("could not read block size in page");
+        if blk_size == self.log_boundary {
+            let next_block_id =
+                BlockId::new(&self.block_id.file_name(), &self.block_id.block_num() + 1);
+            match self.file_manager.read(&next_block_id, &mut self.log_page) {
+                Err(_) => {
+                    return None;
+                }
+                Ok(_) => {}
+            }
+            blk_size =
+                Self::move_to_block(&mut self.file_manager, &self.block_id, &mut self.log_page);
+        }
+        if blk_size == 0 {
+            return None;
+        }
+
+        self.log_page.get_bytes(blk_size as usize)
     }
 }
 
@@ -194,5 +217,15 @@ mod tests {
         // This append will flush the log page to disk
         log_manager.append("buzz".as_bytes().to_vec());
         assert_eq!(log_manager.latest_lsn, 4);
+    }
+
+    #[test]
+    fn test_log_iterator() {
+        let tmp_dir = TempDir::new("test_log_manager").expect("failed to create temp dir");
+        let file_manager = FileManager::new(tmp_dir.path().to_owned(), TEST_BLOCK_SIZE);
+        let mut log_manager = LogManager::builder("log.wal".to_string(), file_manager).build();
+        log_manager.append("foo".as_bytes().to_vec());
+        log_manager.append("bar".as_bytes().to_vec());
+        let mut log_iterator = LogIterator::new(file_manager, )
     }
 }
