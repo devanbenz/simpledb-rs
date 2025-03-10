@@ -179,6 +179,7 @@ impl LogManagerBuilder {
 
 mod tests {
     use super::*;
+    use std::rc::Rc;
     use tempdir::TempDir;
     const TEST_BLOCK_SIZE: usize = 4 * 8;
     #[test]
@@ -222,10 +223,11 @@ mod tests {
     #[test]
     fn test_log_iterator() {
         let tmp_dir = TempDir::new("test_log_manager").expect("failed to create temp dir");
-        let file_manager = FileManager::new(tmp_dir.path().to_owned(), TEST_BLOCK_SIZE);
-        let mut log_manager = LogManager::builder("log.wal".to_string(), file_manager).build();
+        let file_manager = Rc::new(FileManager::new(tmp_dir.path().to_owned(), TEST_BLOCK_SIZE));
+        let mut log_manager = LogManager::builder("log.wal".to_string(), *file_manager).build();
+        let inital_block_id = log_manager.append_new_block();
         log_manager.append("foo".as_bytes().to_vec());
         log_manager.append("bar".as_bytes().to_vec());
-        let mut log_iterator = LogIterator::new(file_manager, )
+        let mut log_iterator = LogIterator::new(log_manager.file_manager, inital_block_id);
     }
 }
