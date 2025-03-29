@@ -1,7 +1,8 @@
+use std::rc::Rc;
 use crate::filemanager::{BlockId, FileManager, Page, PageBuilder};
 
 pub struct LogIterator {
-    file_manager: FileManager,
+    file_manager: Rc<FileManager>,
     log_page: Page,
     block_id: BlockId,
     current_offset: i32,
@@ -9,7 +10,7 @@ pub struct LogIterator {
 }
 
 impl LogIterator {
-    pub fn new(mut fm: FileManager, blk: BlockId) -> Self {
+    pub fn new(mut fm: Rc<FileManager>, blk: BlockId) -> Self {
         let b = vec![0; fm.block_size()];
         let mut p = Page::builder()
             .block_size(fm.block_size())
@@ -62,7 +63,7 @@ impl Iterator for LogIterator {
 
 pub struct LogManager {
     log_file: String,
-    file_manager: FileManager,
+    file_manager: Rc<FileManager>,
     log_page: Page,
     block_id: BlockId,
     latest_lsn: i32,
@@ -70,7 +71,7 @@ pub struct LogManager {
 }
 
 impl LogManager {
-    pub fn builder(log_file: String, mut file_manager: FileManager) -> LogManagerBuilder {
+    pub fn builder(log_file: String, mut file_manager: Rc<FileManager>) -> LogManagerBuilder {
         LogManagerBuilder::new(log_file, file_manager)
     }
 
@@ -124,12 +125,12 @@ impl LogManager {
 
 struct LogManagerBuilder {
     log_file: String,
-    file_manager: FileManager,
+    file_manager: Rc<FileManager>,
     log_page: Page,
 }
 
 impl LogManagerBuilder {
-    pub fn new(log_file: String, file_manager: FileManager) -> Self {
+    pub fn new(log_file: String, file_manager: Rc<FileManager>) -> Self {
         let mut page = PageBuilder::new()
             .with_log_buffer(vec![0; file_manager.block_size()])
             .build();
@@ -185,7 +186,7 @@ mod tests {
     #[test]
     fn test_log_manger_builder() {
         let tmp_dir = TempDir::new("test_log_manager").expect("failed to create temp dir");
-        let file_manager = FileManager::new(tmp_dir.path().to_owned(), TEST_BLOCK_SIZE);
+        let file_manager = Rc::new(FileManager::new(tmp_dir.path().to_owned(), TEST_BLOCK_SIZE));
         let log_manager = LogManager::builder("log.wal".to_string(), file_manager).build();
         assert_eq!(log_manager.block_id.block_num(), 0);
         assert_eq!(log_manager.latest_lsn, 0);
@@ -199,7 +200,7 @@ mod tests {
     #[test]
     fn test_log_manger_append() {
         let tmp_dir = TempDir::new("test_log_manager").expect("failed to create temp dir");
-        let file_manager = FileManager::new(tmp_dir.path().to_owned(), TEST_BLOCK_SIZE);
+        let file_manager = Rc::new(FileManager::new(tmp_dir.path().to_owned(), TEST_BLOCK_SIZE));
         let mut log_manager = LogManager::builder("log.wal".to_string(), file_manager).build();
         assert_eq!(log_manager.block_id.block_num(), 0);
         assert_eq!(log_manager.latest_lsn, 0);
@@ -224,10 +225,11 @@ mod tests {
     fn test_log_iterator() {
         let tmp_dir = TempDir::new("test_log_manager").expect("failed to create temp dir");
         let file_manager = Rc::new(FileManager::new(tmp_dir.path().to_owned(), TEST_BLOCK_SIZE));
-        let mut log_manager = LogManager::builder("log.wal".to_string(), *file_manager).build();
-        let inital_block_id = log_manager.append_new_block();
-        log_manager.append("foo".as_bytes().to_vec());
-        log_manager.append("bar".as_bytes().to_vec());
-        let mut log_iterator = LogIterator::new(log_manager.file_manager, inital_block_id);
+        let mut log_manager = Rc::new(LogManager::builder("log.wal".to_string(), file_manager.clone()).build());
+        let mut lm_logit = log_manager.clone();
+        let inital_block_id = lm_logit.append_new_block();
+        lm_logit.append("foo".as_bytes().to_vec());
+        lm_logit.append("bar".as_bytes().to_vec());
+        let mut log_iterator = LogIterator::new(lm_logit.file_manager.clone(), inital_block_id);
     }
 }
