@@ -240,7 +240,7 @@ impl FileManager {
     pub fn read(&mut self, block_id: &BlockId, page: &mut Page) -> Result<(), std::io::Error> {
         let mut file = self.open_file(self.db_directory.join(&block_id.file_name()));
         match file.seek(std::io::SeekFrom::Start(
-            (page.block_size * block_id.block_num()) as u64,
+            (page.block_size * block_id.block_num() - 1) as u64,
         )) {
             Ok(_) => {}
             Err(err) => {

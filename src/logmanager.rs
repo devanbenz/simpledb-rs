@@ -1,8 +1,9 @@
-use std::rc::Rc;
 use crate::filemanager::{BlockId, FileManager, Page, PageBuilder};
+use std::cell::{RefCell, RefMut};
+use std::rc::Rc;
 
 pub struct LogIterator {
-    file_manager: Rc<FileManager>,
+    file_manager: Rc<RefCell<FileManager>>,
     log_page: Page,
     block_id: BlockId,
     current_offset: i32,
@@ -10,13 +11,14 @@ pub struct LogIterator {
 }
 
 impl LogIterator {
-    pub fn new(mut fm: Rc<FileManager>, blk: BlockId) -> Self {
-        let b = vec![0; fm.block_size()];
+    pub fn new(mut fm: Rc<RefCell<FileManager>>, blk: BlockId) -> Self {
+        let fm_mut = fm.borrow_mut();
+        let b = vec![0; fm_mut.block_size()];
         let mut p = Page::builder()
-            .block_size(fm.block_size())
+            .block_size(fm_mut.block_size())
             .with_log_buffer(b)
             .build();
-        let current_b = Self::move_to_block(&mut fm, &blk, &mut p);
+        let current_b = Self::move_to_block(fm_mut, &blk, &mut p);
         Self {
             file_manager: fm,
             log_page: p,
@@ -26,7 +28,7 @@ impl LogIterator {
         }
     }
 
-    fn move_to_block(fm: &mut FileManager, blk: &BlockId, lp: &mut Page) -> i32 {
+    fn move_to_block(mut fm: RefMut<FileManager>, blk: &BlockId, lp: &mut Page) -> i32 {
         fm.read(blk, lp).expect("could not read block in to page");
         let boundary = lp.get_int(0).expect("could not read boundary in page");
         boundary
@@ -44,14 +46,21 @@ impl Iterator for LogIterator {
         if blk_size == self.log_boundary {
             let next_block_id =
                 BlockId::new(&self.block_id.file_name(), &self.block_id.block_num() + 1);
-            match self.file_manager.read(&next_block_id, &mut self.log_page) {
+            match self
+                .file_manager
+                .borrow_mut()
+                .read(&next_block_id, &mut self.log_page)
+            {
                 Err(_) => {
                     return None;
                 }
                 Ok(_) => {}
             }
-            blk_size =
-                Self::move_to_block(&mut self.file_manager, &self.block_id, &mut self.log_page);
+            blk_size = Self::move_to_block(
+                self.file_manager.borrow_mut(),
+                &self.block_id,
+                &mut self.log_page,
+            );
         }
         if blk_size == 0 {
             return None;
@@ -63,7 +72,7 @@ impl Iterator for LogIterator {
 
 pub struct LogManager {
     log_file: String,
-    file_manager: Rc<FileManager>,
+    file_manager: Rc<RefCell<FileManager>>,
     log_page: Page,
     block_id: BlockId,
     latest_lsn: i32,
@@ -71,7 +80,7 @@ pub struct LogManager {
 }
 
 impl LogManager {
-    pub fn builder(log_file: String, mut file_manager: Rc<FileManager>) -> LogManagerBuilder {
+    pub fn builder(log_file: String, file_manager: Rc<RefCell<FileManager>>) -> LogManagerBuilder {
         LogManagerBuilder::new(log_file, file_manager)
     }
 
@@ -106,17 +115,19 @@ impl LogManager {
 
     fn flush_to_file(&mut self) {
         self.file_manager
+            .borrow_mut()
             .write(&self.block_id, &mut self.log_page)
             .expect("error writing to log file");
         self.last_lsn = self.latest_lsn;
     }
 
     fn append_new_block(&mut self) -> BlockId {
-        let blid = self.file_manager.append(&self.log_file);
+        let blid = self.file_manager.borrow_mut().append(&self.log_file);
         self.log_page.flush();
         self.log_page
-            .set_int(0, Some(self.file_manager.block_size() as i32));
+            .set_int(0, Some(self.file_manager.borrow().block_size() as i32));
         self.file_manager
+            .borrow_mut()
             .write(&blid, &mut self.log_page)
             .expect("could not write block id in to log file");
         blid
@@ -125,14 +136,14 @@ impl LogManager {
 
 struct LogManagerBuilder {
     log_file: String,
-    file_manager: Rc<FileManager>,
+    file_manager: Rc<RefCell<FileManager>>,
     log_page: Page,
 }
 
 impl LogManagerBuilder {
-    pub fn new(log_file: String, file_manager: Rc<FileManager>) -> Self {
+    pub fn new(log_file: String, file_manager: Rc<RefCell<FileManager>>) -> Self {
         let mut page = PageBuilder::new()
-            .with_log_buffer(vec![0; file_manager.block_size()])
+            .with_log_buffer(vec![0; file_manager.borrow().block_size()])
             .build();
         Self {
             log_file,
@@ -142,12 +153,21 @@ impl LogManagerBuilder {
     }
 
     pub fn build(mut self) -> LogManager {
-        let blid = match self.file_manager.length(&self.log_file) {
-            None => self.append_new_block(),
-            Some(file_len) => {
+        let fm = self.file_manager.clone();
+        let file_len = {
+            let blid = fm.borrow_mut().length(&self.log_file);
+            blid
+        };
+
+        let blid = {
+            if file_len == None {
+                self.append_new_block()
+            } else {
+                let file_len = file_len.expect("no block in log file");
                 if file_len > 0 {
                     let blid = BlockId::new(&self.log_file, (file_len - 1));
                     self.file_manager
+                        .borrow_mut()
                         .read(&blid, &mut self.log_page)
                         .expect("could not read block id in to page");
                     blid
@@ -168,10 +188,11 @@ impl LogManagerBuilder {
     }
 
     fn append_new_block(&mut self) -> BlockId {
-        let blid = self.file_manager.append(&self.log_file);
+        let blid = self.file_manager.borrow_mut().append(&self.log_file);
         self.log_page
-            .set_int(0, Some(self.file_manager.block_size() as i32));
+            .set_int(0, Some(self.file_manager.borrow_mut().block_size() as i32));
         self.file_manager
+            .borrow_mut()
             .write(&blid, &mut self.log_page)
             .expect("could not write block id in to log file");
         blid
@@ -186,7 +207,10 @@ mod tests {
     #[test]
     fn test_log_manger_builder() {
         let tmp_dir = TempDir::new("test_log_manager").expect("failed to create temp dir");
-        let file_manager = Rc::new(FileManager::new(tmp_dir.path().to_owned(), TEST_BLOCK_SIZE));
+        let file_manager = Rc::new(RefCell::new(FileManager::new(
+            tmp_dir.path().to_owned(),
+            TEST_BLOCK_SIZE,
+        )));
         let log_manager = LogManager::builder("log.wal".to_string(), file_manager).build();
         assert_eq!(log_manager.block_id.block_num(), 0);
         assert_eq!(log_manager.latest_lsn, 0);
@@ -200,7 +224,10 @@ mod tests {
     #[test]
     fn test_log_manger_append() {
         let tmp_dir = TempDir::new("test_log_manager").expect("failed to create temp dir");
-        let file_manager = Rc::new(FileManager::new(tmp_dir.path().to_owned(), TEST_BLOCK_SIZE));
+        let file_manager = Rc::new(RefCell::new(FileManager::new(
+            tmp_dir.path().to_owned(),
+            TEST_BLOCK_SIZE,
+        )));
         let mut log_manager = LogManager::builder("log.wal".to_string(), file_manager).build();
         assert_eq!(log_manager.block_id.block_num(), 0);
         assert_eq!(log_manager.latest_lsn, 0);
@@ -224,12 +251,25 @@ mod tests {
     #[test]
     fn test_log_iterator() {
         let tmp_dir = TempDir::new("test_log_manager").expect("failed to create temp dir");
-        let file_manager = Rc::new(FileManager::new(tmp_dir.path().to_owned(), TEST_BLOCK_SIZE));
-        let mut log_manager = Rc::new(LogManager::builder("log.wal".to_string(), file_manager.clone()).build());
-        let mut lm_logit = log_manager.clone();
-        let inital_block_id = lm_logit.append_new_block();
-        lm_logit.append("foo".as_bytes().to_vec());
-        lm_logit.append("bar".as_bytes().to_vec());
-        let mut log_iterator = LogIterator::new(lm_logit.file_manager.clone(), inital_block_id);
+        let file_manager = Rc::new(RefCell::new(FileManager::new(
+            tmp_dir.path().to_owned(),
+            TEST_BLOCK_SIZE,
+        )));
+        let mut log_manager = Rc::new(RefCell::new(
+            LogManager::builder("log.wal".to_string(), file_manager.clone()).build(),
+        ));
+        let initial_block_id = {
+            let mut lm = log_manager.borrow_mut();
+            let inital_block_id = lm.append_new_block();
+            lm.append("foo".as_bytes().to_vec());
+            lm.append("bar".as_bytes().to_vec());
+            lm.flush();
+            inital_block_id
+        };
+
+        let mut log_iterator = LogIterator::new(file_manager.clone(), initial_block_id);
+        while let Some(block) = log_iterator.next() {
+            println!("block: {:?}", block);
+        }
     }
 }
