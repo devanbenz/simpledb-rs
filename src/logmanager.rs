@@ -1,5 +1,7 @@
 use crate::filemanager::{BlockId, FileManager, Page, PageBuilder};
+use std::any::Any;
 use std::cell::{RefCell, RefMut};
+use std::ops::Add;
 use std::rc::Rc;
 
 pub struct LogIterator {
@@ -18,13 +20,14 @@ impl LogIterator {
             .block_size(fm_mut.block_size())
             .with_log_buffer(b)
             .build();
+        let block_size = fm_mut.block_size();
         let current_b = Self::move_to_block(fm_mut, &blk, &mut p);
         Self {
             file_manager: fm,
             log_page: p,
             block_id: blk,
             current_offset: current_b,
-            log_boundary: current_b,
+            log_boundary: block_size as i32,
         }
     }
 
@@ -39,34 +42,22 @@ impl Iterator for LogIterator {
     type Item = Box<[u8]>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let mut blk_size = self
-            .log_page
-            .get_int(self.current_offset as usize)
-            .expect("could not read block size in page");
-        if blk_size == self.log_boundary {
-            let next_block_id =
-                BlockId::new(&self.block_id.file_name(), &self.block_id.block_num() + 1);
-            match self
-                .file_manager
-                .borrow_mut()
-                .read(&next_block_id, &mut self.log_page)
-            {
-                Err(_) => {
-                    return None;
-                }
-                Ok(_) => {}
-            }
-            blk_size = Self::move_to_block(
-                self.file_manager.borrow_mut(),
-                &self.block_id,
-                &mut self.log_page,
-            );
+        if self.current_offset >= self.file_manager.borrow_mut().block_size() as i32
+            || self.block_id.block_num() > 0
+        {
+            return None;
         }
-        if blk_size == 0 {
+        let bytes = self.log_page.get_bytes(self.current_offset as usize);
+        if bytes == None {
             return None;
         }
 
-        self.log_page.get_bytes(blk_size as usize)
+        let total = self
+            .current_offset
+            .add((size_of::<i32>() + bytes.as_ref()?.len()) as i32);
+        self.current_offset = total;
+
+        bytes
     }
 }
 
@@ -260,16 +251,20 @@ mod tests {
         ));
         let initial_block_id = {
             let mut lm = log_manager.borrow_mut();
-            let inital_block_id = lm.append_new_block();
             lm.append("foo".as_bytes().to_vec());
             lm.append("bar".as_bytes().to_vec());
             lm.flush();
-            inital_block_id
+            // First block ID
+            BlockId::new(&lm.log_file, 0)
         };
 
         let mut log_iterator = LogIterator::new(file_manager.clone(), initial_block_id);
-        while let Some(block) = log_iterator.next() {
-            println!("block: {:?}", block);
-        }
+        let first = log_iterator.next();
+        assert!(first.is_some());
+        assert_eq!(first.unwrap().to_owned().to_vec(), vec![98, 97, 114]);
+        let second = log_iterator.next();
+        assert!(second.is_some());
+        assert_eq!(log_iterator.next(), None);
+        tmp_dir.close().expect("failed to remove temp dir");
     }
 }
