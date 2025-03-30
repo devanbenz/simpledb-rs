@@ -1,5 +1,4 @@
 use crate::filemanager::{BlockId, FileManager, Page, PageBuilder};
-use std::any::Any;
 use std::cell::{RefCell, RefMut};
 use std::ops::Add;
 use std::rc::Rc;
@@ -9,25 +8,22 @@ pub struct LogIterator {
     log_page: Page,
     block_id: BlockId,
     current_offset: i32,
-    log_boundary: i32,
 }
 
 impl LogIterator {
-    pub fn new(mut fm: Rc<RefCell<FileManager>>, blk: BlockId) -> Self {
+    pub fn new(fm: Rc<RefCell<FileManager>>, blk: BlockId) -> Self {
         let fm_mut = fm.borrow_mut();
         let b = vec![0; fm_mut.block_size()];
         let mut p = Page::builder()
             .block_size(fm_mut.block_size())
             .with_log_buffer(b)
             .build();
-        let block_size = fm_mut.block_size();
         let current_b = Self::move_to_block(fm_mut, &blk, &mut p);
         Self {
             file_manager: fm,
             log_page: p,
             block_id: blk,
             current_offset: current_b,
-            log_boundary: block_size as i32,
         }
     }
 
@@ -78,8 +74,8 @@ impl LogManager {
     pub fn append(&mut self, rec: Vec<u8>) -> i32 {
         let reclen = rec.len();
         let bytes_needed = reclen + size_of::<i32>();
-        let mut boundary = 0;
         if let Some(b) = self.log_page.get_int(0) {
+            let boundary;
             if (b as usize - bytes_needed) < size_of::<i32>() {
                 self.flush();
                 self.block_id = self.append_new_block();
@@ -125,7 +121,7 @@ impl LogManager {
     }
 }
 
-struct LogManagerBuilder {
+pub struct LogManagerBuilder {
     log_file: String,
     file_manager: Rc<RefCell<FileManager>>,
     log_page: Page,
@@ -133,7 +129,7 @@ struct LogManagerBuilder {
 
 impl LogManagerBuilder {
     pub fn new(log_file: String, file_manager: Rc<RefCell<FileManager>>) -> Self {
-        let mut page = PageBuilder::new()
+        let page = PageBuilder::new()
             .with_log_buffer(vec![0; file_manager.borrow().block_size()])
             .build();
         Self {
@@ -156,7 +152,7 @@ impl LogManagerBuilder {
             } else {
                 let file_len = file_len.expect("no block in log file");
                 if file_len > 0 {
-                    let blid = BlockId::new(&self.log_file, (file_len - 1));
+                    let blid = BlockId::new(&self.log_file, file_len - 1);
                     self.file_manager
                         .borrow_mut()
                         .read(&blid, &mut self.log_page)
@@ -248,7 +244,7 @@ mod tests {
             tmp_dir.path().to_owned(),
             TEST_BLOCK_SIZE,
         )));
-        let mut log_manager = Rc::new(RefCell::new(
+        let log_manager = Rc::new(RefCell::new(
             LogManager::builder("log.wal".to_string(), file_manager.clone()).build(),
         ));
         let initial_block_id = {

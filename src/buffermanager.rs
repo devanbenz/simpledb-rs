@@ -1,11 +1,9 @@
 use crate::filemanager::{BlockId, FileManager, Page};
 use crate::logmanager::LogManager;
-use std::cell::{Ref, RefCell};
-use std::fs::File;
+use std::cell::RefCell;
 use std::ops::DerefMut;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicI32, Ordering};
-use log::log;
 
 struct Buffer {
     file_manager: Rc<RefCell<FileManager>>,
@@ -54,9 +52,7 @@ impl Buffer {
 
     pub fn set_modified(&mut self, txn: usize, lsn: usize) {
         self.txn = Some(txn);
-        if let Some(lsn) = self.lsn {
-            self.lsn = Some(lsn);
-        }
+        self.lsn = Some(lsn);
     }
 
     pub fn modifying_txn(&self) -> Option<usize> {
@@ -79,12 +75,12 @@ impl Buffer {
                     log::warn!("no block id provided")
                 }
                 Some(blid) => {
-                    let mut page_clone = self.contents.clone();
+                    let page_clone = self.contents.clone();
                     {
                         let mut page_borrow = page_clone.borrow_mut();
                         let page = page_borrow.deref_mut();
                         self.file_manager.borrow_mut().write(blid, page).expect("could not write to file manager");
-                        if (txn == 1) {
+                        if txn == 1 {
                             self.txn = None;
                         } else {
                             self.txn = Some(txn - 1);
@@ -108,7 +104,7 @@ impl BufferManager {
 
     fn new(file_manager: Rc<RefCell<FileManager>>, log_manager: Rc<RefCell<LogManager>>, buff_n: i32) -> BufferManager {
         let mut buffer_pool = vec![];
-        for i in 0..buff_n {
+        for _ in 0..buff_n {
             buffer_pool.push(Rc::new(RefCell::new(Buffer::new(file_manager.clone(), log_manager.clone()))));
         }
         let buff_n_available = AtomicI32::new(buff_n);
@@ -135,7 +131,7 @@ impl BufferManager {
 
     pub fn unpin(&mut self, buffer: &mut Buffer) {
         buffer.unpin();
-        if (!buffer.pinned()) {
+        if !buffer.pinned() {
             self.buff_n_available.fetch_add(1, Ordering::Relaxed);
         }
     }
@@ -166,12 +162,7 @@ impl BufferManager {
 
     fn find_buffer(&mut self, block_id: &BlockId) -> Option<Rc<RefCell<Buffer>>> {
         for buffer in self.buffer_pool.clone() {
-            let buff_block_id = {
-                let buf = buffer.borrow_mut();
-                buf.block_id()
-            };
-
-            if let Some(blid) = buff_block_id {
+            if let Some(blid) = buffer.clone().borrow_mut().block_id() {
                 if blid == block_id {
                     return Some(buffer);
                 }
@@ -181,7 +172,7 @@ impl BufferManager {
     }
 
     fn find_unpinned_buffer(&mut self) -> Option<Rc<RefCell<Buffer>>> {
-        for buffer in self.buffer_pool {
+        for buffer in self.buffer_pool.clone() {
             if !buffer.borrow_mut().pinned() {
                 return Some(buffer);
             }
@@ -202,7 +193,7 @@ mod buffer_tests {
             tmp_dir.path().to_owned(),
             TEST_BLOCK_SIZE
         )));
-        let mut log_manager = Rc::new(RefCell::new(
+        let log_manager = Rc::new(RefCell::new(
             LogManager::builder("log.wal".to_string(), file_manager.clone()).build(),
         ));
 
@@ -210,8 +201,30 @@ mod buffer_tests {
         assert_eq!(buffer.pinned(), false);
         assert_eq!(buffer.txn, None);
         assert_eq!(buffer.lsn, None);
+
+        tmp_dir.close().expect("failed to remove temp dir");
     }
 }
 
 #[cfg(test)]
-mod buffer_manager_tests {}
+mod buffer_manager_tests {
+    use tempdir::TempDir;
+    use super::*;
+    const TEST_BLOCK_SIZE: usize = 16;
+    #[test]
+    fn test_buffer_manager() {
+        let tmp_dir = TempDir::new("test_log_manager").expect("failed to create temp dir");
+        let file_manager = Rc::new(RefCell::new(FileManager::new(
+            tmp_dir.path().to_owned(),
+            TEST_BLOCK_SIZE
+        )));
+        let log_manager = Rc::new(RefCell::new(
+            LogManager::builder("log.wal".to_string(), file_manager.clone()).build(),
+        ));
+
+        let mut buffer_manager = BufferManager::new(file_manager, log_manager, 5);
+        assert_eq!(buffer_manager.available_buffers(), 5);
+        let maybe_buffer = buffer_manager.find_buffer(&BlockId::new("test", 1));
+        assert!(maybe_buffer.is_none());
+    }
+}

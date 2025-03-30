@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::fmt::Display;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, Write};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 pub(crate) struct BlockId {
     file_name: String,
@@ -274,7 +274,7 @@ impl FileManager {
         let path = self.db_directory.join(&file_name);
         let mut file = self.open_file(path);
         let metadata = file.metadata().expect("failed to get metadata");
-        let block_number = (metadata.len() as usize / self.block_size);
+        let block_number = metadata.len() as usize / self.block_size;
 
         file.seek(std::io::SeekFrom::End(
             (self.block_size * block_number) as i64,
@@ -330,7 +330,6 @@ impl FileManager {
 
 mod tests {
     use super::*;
-    use std::fmt::Octal;
     use tempdir::TempDir;
     const TEST_BLOCK_SIZE: usize = 16;
     #[test]
@@ -361,7 +360,7 @@ mod tests {
         assert_eq!(page.get_int(60), None);
         assert_eq!(page.get_string(60), None);
 
-        let mut page2 = Page::builder()
+        let page2 = Page::builder()
             .block_size(TEST_BLOCK_SIZE)
             .with_log_buffer(vec![0; TEST_BLOCK_SIZE * 4])
             .build();
