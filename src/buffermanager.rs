@@ -2,6 +2,7 @@ use crate::filemanager::{BlockId, FileManager, Page};
 use crate::logmanager::LogManager;
 use std::cell::{Ref, RefCell};
 use std::fs::File;
+use std::ops::DerefMut;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicI32, Ordering};
 use log::log;
@@ -80,7 +81,8 @@ impl Buffer {
                 Some(blid) => {
                     let mut page_clone = self.contents.clone();
                     {
-                        let page = page_clone.get_mut();
+                        let mut page_borrow = page_clone.borrow_mut();
+                        let page = page_borrow.deref_mut();
                         self.file_manager.borrow_mut().write(blid, page).expect("could not write to file manager");
                         if (txn == 1) {
                             self.txn = None;
@@ -97,7 +99,7 @@ impl Buffer {
 struct BufferManager {
     file_manager: Rc<RefCell<FileManager>>,
     log_manager: Rc<RefCell<LogManager>>,
-    buffer_pool: Vec<Buffer>,
+    buffer_pool: Vec<Rc<RefCell<Buffer>>>,
     buff_n_available: AtomicI32,
 }
 
@@ -107,7 +109,7 @@ impl BufferManager {
     fn new(file_manager: Rc<RefCell<FileManager>>, log_manager: Rc<RefCell<LogManager>>, buff_n: i32) -> BufferManager {
         let mut buffer_pool = vec![];
         for i in 0..buff_n {
-            buffer_pool.push(Buffer::new(file_manager.clone(), log_manager.clone()));
+            buffer_pool.push(Rc::new(RefCell::new(Buffer::new(file_manager.clone(), log_manager.clone()))));
         }
         let buff_n_available = AtomicI32::new(buff_n);
 
@@ -118,7 +120,7 @@ impl BufferManager {
             buff_n_available,
         }
     }
-    pub fn pin(&mut self, block_id: &BlockId) -> Option<&mut Buffer> {
+    pub fn pin(&mut self, block_id: &BlockId) -> Option<Rc<RefCell<Buffer>>> {
         let timestamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis();
         loop {
             if let Some(buffer) = self.try_pin(block_id) {
@@ -143,18 +145,18 @@ impl BufferManager {
     }
 
     pub fn flush_all_buffers(&mut self, txn_num: usize) {
-        for buffer in self.buffer_pool.iter_mut() {
-            if buffer.modifying_txn().is_some_and(|txn| txn == txn_num) {
-                buffer.flush();
+        for buffer in self.buffer_pool.iter() {
+            if buffer.borrow_mut().modifying_txn().is_some_and(|txn| txn == txn_num) {
+                buffer.borrow_mut().flush();
             }
         }
     }
 
-    fn waiting_too_long(&self, start_time: u128) -> bool {
+    fn waiting_too_long(&mut self, start_time: u128) -> bool {
         std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() - start_time > Self::MAX_TIME
     }
 
-    fn try_pin(&mut self, block_id: &BlockId) -> Option<&mut Buffer> {
+    fn try_pin(&mut self, block_id: &BlockId) -> Option<Rc<RefCell<Buffer>>> {
         if let Some(buffer) = self.find_buffer(block_id) {
             Some(buffer)
         } else {
@@ -162,9 +164,13 @@ impl BufferManager {
         }
     }
 
-    fn find_buffer(&mut self, block_id: &BlockId) -> Option<&mut Buffer> {
-        for buffer in self.buffer_pool.iter_mut() {
-            let buff_block_id = buffer.block_id();
+    fn find_buffer(&mut self, block_id: &BlockId) -> Option<Rc<RefCell<Buffer>>> {
+        for buffer in self.buffer_pool.clone() {
+            let buff_block_id = {
+                let buf = buffer.borrow_mut();
+                buf.block_id()
+            };
+
             if let Some(blid) = buff_block_id {
                 if blid == block_id {
                     return Some(buffer);
@@ -174,9 +180,9 @@ impl BufferManager {
         None
     }
 
-    fn find_unpinned_buffer(&mut self) -> Option<&mut Buffer> {
-        for buffer in self.buffer_pool.iter_mut() {
-            if !buffer.pinned() {
+    fn find_unpinned_buffer(&mut self) -> Option<Rc<RefCell<Buffer>>> {
+        for buffer in self.buffer_pool {
+            if !buffer.borrow_mut().pinned() {
                 return Some(buffer);
             }
         }
