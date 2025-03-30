@@ -210,6 +210,7 @@ mod tests {
             log_manager.log_page.get_int(0),
             Some(TEST_BLOCK_SIZE as i32)
         );
+        tmp_dir.close().expect("failed to remove temp dir");
     }
 
     #[test]
@@ -237,6 +238,7 @@ mod tests {
         // This append will flush the log page to disk
         log_manager.append("buzz".as_bytes().to_vec());
         assert_eq!(log_manager.latest_lsn, 4);
+        tmp_dir.close().expect("failed to remove temp dir");
     }
 
     #[test]

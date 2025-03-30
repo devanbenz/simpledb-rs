@@ -1,6 +1,6 @@
 use crate::filemanager::{BlockId, FileManager, Page};
 use crate::logmanager::LogManager;
-use std::cell::RefCell;
+use std::cell::{Ref, RefCell};
 use std::fs::File;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicI32, Ordering};
@@ -10,7 +10,7 @@ struct Buffer {
     file_manager: Rc<RefCell<FileManager>>,
     log_manager: Rc<RefCell<LogManager>>,
     block_id: Option<BlockId>,
-    contents: Page,
+    contents: Rc<RefCell<Page>>,
     pins: AtomicI32,
     txn: Option<usize>,
     lsn: Option<usize>,
@@ -23,10 +23,10 @@ impl Buffer {
     ) -> Buffer {
         let fm_blk_size = { file_manager.borrow_mut().block_size() };
 
-        let page = Page::builder()
+        let page = Rc::new(RefCell::new(Page::builder()
             .block_size(fm_blk_size)
             .with_buffer()
-            .build();
+            .build()));
         Buffer {
             file_manager,
             log_manager,
@@ -38,8 +38,8 @@ impl Buffer {
         }
     }
 
-    pub fn contents(&self) -> &Page {
-        let page = &self.contents;
+    pub fn contents(&self) -> Rc<RefCell<Page>> {
+        let page = self.contents.clone();
         page
     }
 
@@ -78,11 +78,15 @@ impl Buffer {
                     log::warn!("no block id provided")
                 }
                 Some(blid) => {
-                    self.file_manager.borrow_mut().write(blid, &mut self.contents()).expect("could not write to file manager");
-                    if (txn == 1) {
-                        self.txn = None;
-                    } else {
-                        self.txn = Some(txn - 1);
+                    let mut page_clone = self.contents.clone();
+                    {
+                        let page = page_clone.get_mut();
+                        self.file_manager.borrow_mut().write(blid, page).expect("could not write to file manager");
+                        if (txn == 1) {
+                            self.txn = None;
+                        } else {
+                            self.txn = Some(txn - 1);
+                        }
                     }
                 }
             }
@@ -90,8 +94,6 @@ impl Buffer {
     }
 }
 
-// BufferMgr
-// public BufferMgr(FileMgr fm, LogMgr lm, int numbuffs);
 struct BufferManager {
     file_manager: Rc<RefCell<FileManager>>,
     log_manager: Rc<RefCell<LogManager>>,
@@ -103,7 +105,10 @@ impl BufferManager {
     const MAX_TIME: u128 = 1000;
 
     fn new(file_manager: Rc<RefCell<FileManager>>, log_manager: Rc<RefCell<LogManager>>, buff_n: i32) -> BufferManager {
-        let buffer_pool = vec!(Buffer::new(file_manager, log_manager); buff_n as usize);
+        let mut buffer_pool = vec![];
+        for i in 0..buff_n {
+            buffer_pool.push(Buffer::new(file_manager.clone(), log_manager.clone()));
+        }
         let buff_n_available = AtomicI32::new(buff_n);
 
         BufferManager {
@@ -178,3 +183,29 @@ impl BufferManager {
         None
     }
 }
+
+#[cfg(test)]
+mod buffer_tests {
+    use tempdir::TempDir;
+    use super::*;
+    const TEST_BLOCK_SIZE: usize = 16;
+    #[test]
+    fn test_buffer() {
+        let tmp_dir = TempDir::new("test_log_manager").expect("failed to create temp dir");
+        let file_manager = Rc::new(RefCell::new(FileManager::new(
+            tmp_dir.path().to_owned(),
+            TEST_BLOCK_SIZE
+        )));
+        let mut log_manager = Rc::new(RefCell::new(
+            LogManager::builder("log.wal".to_string(), file_manager.clone()).build(),
+        ));
+
+        let buffer = Buffer::new(file_manager.clone(), log_manager.clone());
+        assert_eq!(buffer.pinned(), false);
+        assert_eq!(buffer.txn, None);
+        assert_eq!(buffer.lsn, None);
+    }
+}
+
+#[cfg(test)]
+mod buffer_manager_tests {}
