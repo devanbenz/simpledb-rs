@@ -1,8 +1,8 @@
 //public Transaction(FileMgr fm, LogMgr lm, BufferMgr bm);
 
-pub struct Transaction {
+use crate::filemanager::BlockId;
 
-}
+pub struct Transaction {}
 
 impl Transaction {
     pub fn new() -> Self {}
@@ -22,10 +22,6 @@ impl Transaction {
     // public void setInt(BlockId blk, int offset, int val,
     // boolean okToLog);
     // public void setString(BlockId blk, int offset, String val,
-    // public int availableBuffs();
-    // public int size(String filename);
-    // public Block append(String filename);
-    // public int blockSize();
 
     pub fn get_int(&self, offset: usize) -> Option<i32> {}
 
@@ -34,4 +30,17 @@ impl Transaction {
     pub fn set_int(&mut self, offset: usize, val: Option<i32>) {}
 
     pub fn set_string(&mut self, offset: usize, val: Option<String>) {}
+
+    // public int availableBuffs();
+    // public int size(String filename);
+    // public Block append(String filename);
+    // public int blockSize();
+
+    pub fn available_buffers(&self) -> Option<usize> {}
+
+    pub fn size() -> usize {}
+
+    pub fn append() -> BlockId {}
+
+    pub fn block_size() -> usize {}
 }
