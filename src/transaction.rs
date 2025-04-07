@@ -13,28 +13,17 @@ impl Transaction {
 
     pub fn recover(&mut self) {}
 
-    pub fn pin(&mut self) {}
+    pub fn pin(&mut self, block_id: &BlockId) {}
 
-    pub fn unpin(&mut self) {}
+    pub fn unpin(&mut self, block_id: &BlockId) {}
 
-    // public int getInt(BlockId blk, int offset);
-    // public String getString(BlockId blk, int offset);
-    // public void setInt(BlockId blk, int offset, int val,
-    // boolean okToLog);
-    // public void setString(BlockId blk, int offset, String val,
+    pub fn get_int(&self, offset: i32) -> Option<i32> {}
 
-    pub fn get_int(&self, offset: usize) -> Option<i32> {}
+    pub fn get_string(&self,block_id: &BlockId, offset: usize) -> Option<String> {}
 
-    pub fn get_string(&self, offset: usize) -> Option<String> {}
+    pub fn set_int(&mut self, offset: i32, val: Option<i32>) {}
 
-    pub fn set_int(&mut self, offset: usize, val: Option<i32>) {}
-
-    pub fn set_string(&mut self, offset: usize, val: Option<String>) {}
-
-    // public int availableBuffs();
-    // public int size(String filename);
-    // public Block append(String filename);
-    // public int blockSize();
+    pub fn set_string(&mut self, block_id: &BlockId, offset: i32, val: Option<String>, should_log: bool) {}
 
     pub fn available_buffers(&self) -> Option<usize> {}
 

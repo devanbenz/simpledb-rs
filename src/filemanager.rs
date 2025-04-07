@@ -132,6 +132,14 @@ impl Page {
         self.byte_buffer = vec![0; self.block_size as usize];
     }
 
+    pub fn max_len(s: &str) -> usize {
+        size_of::<i32>() + s.as_bytes().len()
+    }
+
+    pub fn bytes(&self) -> &[u8] {
+        &self.byte_buffer
+    }
+
     pub fn size(&self) -> usize {
         todo!()
     }
