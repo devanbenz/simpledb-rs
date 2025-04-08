@@ -1,8 +1,8 @@
-use std::cell::RefCell;
-use std::rc::Rc;
 use crate::filemanager::{BlockId, Page};
 use crate::logmanager::LogManager;
 use crate::transaction::Transaction;
+use std::cell::RefCell;
+use std::rc::Rc;
 
 pub trait LogRecord {
     const CHECKPOINT: i32 = 0;
@@ -18,7 +18,7 @@ pub trait LogRecord {
 
     fn undo(&self, txn: &mut Transaction);
 
-    fn create_log_record(bytes: Vec<u8>, txn: Transaction) -> Option<Box<dyn LogRecord>> {
+    fn create_log_record(bytes: Vec<u8>) -> Option<Box<dyn LogRecord>> {
         let mut page = Page::builder().with_log_buffer(bytes).build();
         let page_t = page.get_int(0).unwrap();
         match page_t {
@@ -28,7 +28,7 @@ pub trait LogRecord {
             Self::ROLLBACK => Some(Box::new(SetIntLogRecord::new(page))),
             Self::SETINT => Some(Box::new(SetIntLogRecord::new(page))),
             Self::SETSTRING => Some(Box::new(SetStringLogRecord::new(page))),
-            _ => None
+            _ => None,
         }
     }
 }
@@ -54,10 +54,21 @@ impl SetStringLogRecord {
         let value_pos = offset_pos + size_of::<i32>();
         let value = page.get_string(value_pos).unwrap();
 
-        SetStringLogRecord { tx_number, offset, block_id, value }
+        SetStringLogRecord {
+            tx_number,
+            offset,
+            block_id,
+            value,
+        }
     }
 
-    pub fn write_to_log_record(log_manager: Rc<RefCell<LogManager>>, tx_number: i32, block_id: &BlockId, offset: i32, value: String) -> i32 {
+    pub fn write_to_log_record(
+        log_manager: Rc<RefCell<LogManager>>,
+        tx_number: i32,
+        block_id: &BlockId,
+        offset: i32,
+        value: String,
+    ) -> i32 {
         let tx_pos = size_of::<i32>();
         let filename_pos = tx_pos + size_of::<i32>();
         let block_pos = Page::max_len(block_id.file_name().as_str());
@@ -113,10 +124,21 @@ impl SetIntLogRecord {
         let value_pos = offset_pos + size_of::<i32>();
         let value = page.get_int(value_pos).unwrap();
 
-        SetIntLogRecord { tx_number, offset, block_id, value }
+        SetIntLogRecord {
+            tx_number,
+            offset,
+            block_id,
+            value,
+        }
     }
 
-    pub fn write_to_log_record(log_manager: Rc<RefCell<LogManager>>, tx_number: i32, block_id: &BlockId, offset: i32, value: i32) -> i32 {
+    pub fn write_to_log_record(
+        log_manager: Rc<RefCell<LogManager>>,
+        tx_number: i32,
+        block_id: &BlockId,
+        offset: i32,
+        value: i32,
+    ) -> i32 {
         let tx_pos = size_of::<i32>();
         let filename_pos = tx_pos + size_of::<i32>();
         let block_pos = Page::max_len(block_id.file_name().as_str());
@@ -153,9 +175,7 @@ impl LogRecord for SetIntLogRecord {
 
 pub struct CommitLogRecord {
     tx_number: i32,
-    offset: i32,
     block_id: BlockId,
-    value: i32,
 }
 
 impl CommitLogRecord {
@@ -167,29 +187,28 @@ impl CommitLogRecord {
         let block_pos = Page::max_len(&filename);
         let block_num = page.get_int(block_pos).unwrap();
         let block_id = BlockId::new(&filename, block_num as usize);
-        let offset_pos = block_pos + size_of::<i32>();
-        let offset = page.get_int(offset_pos).unwrap();
-        let value_pos = offset_pos + size_of::<i32>();
-        let value = page.get_int(value_pos).unwrap();
 
-        CommitLogRecord { tx_number, offset, block_id, value }
+        CommitLogRecord {
+            tx_number,
+            block_id,
+        }
     }
 
-    pub fn write_to_log_record(log_manager: Rc<RefCell<LogManager>>, tx_number: i32, block_id: &BlockId, offset: i32, value: i32) -> i32 {
+    pub fn write_to_log_record(
+        log_manager: Rc<RefCell<LogManager>>,
+        tx_number: i32,
+        block_id: &BlockId,
+    ) -> i32 {
         let tx_pos = size_of::<i32>();
         let filename_pos = tx_pos + size_of::<i32>();
         let block_pos = Page::max_len(block_id.file_name().as_str());
-        let offset_pos = block_pos + size_of::<i32>();
-        let value_pos = offset_pos + size_of::<i32>();
-        let record_len = value_pos + size_of::<i32>();
+        let record_len = block_pos + size_of::<i32>();
         let record = vec![0u8; record_len];
         let mut page = Page::builder().with_log_buffer(record).build();
-        page.set_int(0, Some(Self::SETINT));
+        page.set_int(0, Some(Self::COMMIT));
         page.set_int(tx_pos, Some(tx_number));
         page.set_string(filename_pos, Some(block_id.file_name()));
         page.set_int(block_pos, Some(block_id.block_num() as i32));
-        page.set_int(offset_pos, Some(offset));
-        page.set_int(value_pos, Some(value));
         let bb = page.bytes();
         log_manager.borrow_mut().append(Vec::from(bb))
     }

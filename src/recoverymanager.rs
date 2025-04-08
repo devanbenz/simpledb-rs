@@ -4,22 +4,35 @@ use crate::logmanager::LogManager;
 use crate::transaction::Transaction;
 use std::cell::{Ref, RefCell};
 use std::rc::Rc;
+use crate::logrecord::CommitLogRecord;
 
 struct RecoveryManager {
     log_manager: Rc<RefCell<LogManager>>,
     buffer_manager: Rc<RefCell<BufferManager>>,
     transaction: Transaction,
-    transaction_n: i32
+    transaction_n: i32,
 }
 
 impl RecoveryManager {
-    pub fn new(tx: Transaction, tx_n: i32, log_manager: Rc<RefCell<LogManager>>, buffer_manager: Rc<RefCell<BufferManager>>) -> RecoveryManager {
-        RecoveryManager { log_manager, buffer_manager, transaction: tx, transaction_n: tx_n }
+    pub fn new(
+        tx: Transaction,
+        tx_n: i32,
+        log_manager: Rc<RefCell<LogManager>>,
+        buffer_manager: Rc<RefCell<BufferManager>>,
+    ) -> RecoveryManager {
+        RecoveryManager {
+            log_manager,
+            buffer_manager,
+            transaction: tx,
+            transaction_n: tx_n,
+        }
     }
 
     pub fn commit(&self) {
-        self.buffer_manager.borrow_mut().flush_all_buffers(self.transaction_n);
-
+        self.buffer_manager
+            .borrow_mut()
+            .flush_all_buffers(self.transaction_n);
+        let lr = CommitLogRecord::write_to_log_record(self.log_manager.clone(), self.transaction_n)
     }
 
     pub fn rollback() {}
