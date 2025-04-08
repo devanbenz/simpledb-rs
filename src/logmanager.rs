@@ -3,22 +3,22 @@ use std::cell::{RefCell, RefMut};
 use std::ops::Add;
 use std::rc::Rc;
 
-pub struct LogIterator {
+pub struct LogIterator<'a> {
     file_manager: Rc<RefCell<FileManager>>,
     log_page: Page,
-    block_id: BlockId,
+    block_id: &'a BlockId,
     current_offset: i32,
 }
 
 impl LogIterator {
-    pub fn new(fm: Rc<RefCell<FileManager>>, blk: BlockId) -> Self {
+    pub fn new(fm: Rc<RefCell<FileManager>>, blk: &BlockId) -> Self {
         let fm_mut = fm.borrow_mut();
         let b = vec![0; fm_mut.block_size()];
         let mut p = Page::builder()
             .block_size(fm_mut.block_size())
             .with_log_buffer(b)
             .build();
-        let current_b = Self::move_to_block(fm_mut, &blk, &mut p);
+        let current_b = Self::move_to_block(fm_mut, blk, &mut p);
         Self {
             file_manager: fm,
             log_page: p,
@@ -39,7 +39,7 @@ impl Iterator for LogIterator {
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.current_offset >= self.file_manager.borrow_mut().block_size() as i32
-            || self.block_id.block_num() > 0
+            || self.block_id.borrow_mut().block_num() > 0
         {
             return None;
         }
@@ -98,6 +98,10 @@ impl LogManager {
         if self.latest_lsn >= self.last_lsn {
             self.flush_to_file()
         }
+    }
+
+    pub fn iterator(&self) -> LogIterator {
+        LogIterator::new(self.file_manager.clone(), &self.block_id)
     }
 
     fn flush_to_file(&mut self) {
@@ -256,7 +260,7 @@ mod tests {
             BlockId::new(&lm.log_file, 0)
         };
 
-        let mut log_iterator = LogIterator::new(file_manager.clone(), initial_block_id);
+        let mut log_iterator = LogIterator::new(file_manager.clone(), &initial_block_id);
         let first = log_iterator.next();
         assert!(first.is_some());
         assert_eq!(first.unwrap().to_owned().to_vec(), vec![98, 97, 114]);

@@ -4,3 +4,4 @@ mod logmanager;
 mod logrecord;
 mod recoverymanager;
 mod transaction;
+mod concurrencymanager;

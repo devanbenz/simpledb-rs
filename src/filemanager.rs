@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::fmt::Display;
 use std::fs::{File, OpenOptions};
+use std::hash::{Hash, Hasher};
 use std::io::{Read, Seek, Write};
 use std::path::PathBuf;
 
@@ -23,6 +24,15 @@ impl BlockId {
 
     pub fn block_num(&self) -> usize {
         self.block_num
+    }
+}
+
+impl Eq for BlockId {}
+
+impl Hash for BlockId {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.block_num.hash(state);
+        self.file_name.hash(state);
     }
 }
 
