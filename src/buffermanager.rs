@@ -11,7 +11,7 @@ pub struct Buffer {
     block_id: Option<BlockId>,
     contents: Rc<RefCell<Page>>,
     pins: AtomicI32,
-    txn: Option<usize>,
+    txn: Option<i32>,
     lsn: Option<usize>,
 }
 
@@ -52,12 +52,12 @@ impl Buffer {
         self.pins.load(Ordering::Relaxed) > 0
     }
 
-    pub fn set_modified(&mut self, txn: usize, lsn: usize) {
+    pub fn set_modified(&mut self, txn: i32, lsn: usize) {
         self.txn = Some(txn);
         self.lsn = Some(lsn);
     }
 
-    pub fn modifying_txn(&self) -> Option<usize> {
+    pub fn modifying_txn(&self) -> Option<i32> {
         self.txn
     }
 
@@ -97,7 +97,7 @@ impl Buffer {
     }
 }
 
-struct BufferManager {
+pub struct BufferManager {
     file_manager: Rc<RefCell<FileManager>>,
     log_manager: Rc<RefCell<LogManager>>,
     buffer_pool: Vec<Rc<RefCell<Buffer>>>,
@@ -155,7 +155,7 @@ impl BufferManager {
         self.buff_n_available.load(Ordering::Relaxed)
     }
 
-    pub fn flush_all_buffers(&mut self, txn_num: usize) {
+    pub fn flush_all_buffers(&mut self, txn_num: i32) {
         for buffer in self.buffer_pool.iter() {
             if buffer
                 .borrow_mut()

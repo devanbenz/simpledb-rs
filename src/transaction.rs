@@ -21,7 +21,7 @@ impl Transaction {
 
     pub fn get_string(&self,block_id: &BlockId, offset: usize) -> Option<String> {}
 
-    pub fn set_int(&mut self, offset: i32, val: Option<i32>) {}
+    pub fn set_int(&mut self, block_id: &BlockId, offset: i32, val: Option<i32>, should_log: bool) {}
 
     pub fn set_string(&mut self, block_id: &BlockId, offset: i32, val: Option<String>, should_log: bool) {}
 

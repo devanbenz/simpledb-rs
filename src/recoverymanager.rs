@@ -1,16 +1,26 @@
-use crate::buffermanager::Buffer;
+use crate::buffermanager::{Buffer, BufferManager};
 use crate::filemanager::Page;
 use crate::logmanager::LogManager;
 use crate::transaction::Transaction;
-use std::cell::RefCell;
+use std::cell::{Ref, RefCell};
 use std::rc::Rc;
 
-struct RecoveryManager {}
+struct RecoveryManager {
+    log_manager: Rc<RefCell<LogManager>>,
+    buffer_manager: Rc<RefCell<BufferManager>>,
+    transaction: Transaction,
+    transaction_n: i32
+}
 
 impl RecoveryManager {
-    pub fn new(tx: Transaction, tx_n: i32, log_manager: Rc<RefCell<LogManager>>) -> Self {}
+    pub fn new(tx: Transaction, tx_n: i32, log_manager: Rc<RefCell<LogManager>>, buffer_manager: Rc<RefCell<BufferManager>>) -> RecoveryManager {
+        RecoveryManager { log_manager, buffer_manager, transaction: tx, transaction_n: tx_n }
+    }
 
-    pub fn commit() {}
+    pub fn commit(&self) {
+        self.buffer_manager.borrow_mut().flush_all_buffers(self.transaction_n);
+
+    }
 
     pub fn rollback() {}
 
@@ -20,9 +30,3 @@ impl RecoveryManager {
 
     pub fn set_string(buf: Buffer, offset: usize, new_val: String) -> usize {}
 }
-
-// public void commit();
-// public void rollback();
-// public void recover();
-// public int setInt(Buffer buff, int offset, int newval);
-// public int setString(Buffer buff, int offset, String newval);
