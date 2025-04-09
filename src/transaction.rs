@@ -55,10 +55,11 @@ impl BufferList {
     }
 }
 
-pub struct Transaction {
+pub struct Transaction<'a> {
     recovery_manager: Rc<RefCell<RecoveryManager>>,
     buffer_manager: Rc<RefCell<BufferManager>>,
     file_manager: Rc<RefCell<FileManager>>,
+    buffer_list: BufferList<'a>,
     transaction_n: i32,
 }
 
