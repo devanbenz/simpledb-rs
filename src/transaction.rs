@@ -1,11 +1,12 @@
 //public Transaction(FileMgr fm, LogMgr lm, BufferMgr bm);
 
+use crate::buffermanager::{Buffer, BufferManager};
+use crate::filemanager::{BlockId, FileManager};
+use crate::logmanager::LogManager;
+use crate::recoverymanager::RecoveryManager;
 use std::cell::{Ref, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
-use crate::buffermanager::{Buffer, BufferManager};
-use crate::filemanager::{BlockId, FileManager};
-use crate::recoverymanager::RecoveryManager;
 
 struct BufferList<'a> {
     buffers: HashMap<&'a BlockId, Rc<RefCell<Buffer>>>,
@@ -27,10 +28,10 @@ impl BufferList {
     }
 
     pub fn pin(&mut self, block_id: &BlockId) {
-       if let Some(buffer) = self.buffer_manager.borrow_mut().pin(block_id) {
-               self.buffers.insert(block_id, buffer);
-               self.pins.push(block_id);
-       }
+        if let Some(buffer) = self.buffer_manager.borrow_mut().pin(block_id) {
+            self.buffers.insert(block_id, buffer);
+            self.pins.push(block_id);
+        }
     }
 
     pub fn unpin(&mut self, block_id: &BlockId) {
@@ -56,15 +57,29 @@ impl BufferList {
 }
 
 pub struct Transaction<'a> {
-    recovery_manager: Rc<RefCell<RecoveryManager>>,
     buffer_manager: Rc<RefCell<BufferManager>>,
     file_manager: Rc<RefCell<FileManager>>,
+    recovery_manager: RecoveryManager<'a>,
     buffer_list: BufferList<'a>,
     transaction_n: i32,
 }
 
 impl Transaction {
-    pub fn new() -> Self {}
+    pub fn new(
+        file_manager: Rc<RefCell<FileManager>>,
+        log_manager: Rc<RefCell<LogManager>>,
+        buffer_manager: Rc<RefCell<BufferManager>>,
+    ) -> Self {
+        let recovery_manager = RecoveryManager::new(Self, 0, log_manager, buffer_manager.clone());
+        let buffer_list = BufferList::new(buffer_manager.clone());
+        Transaction {
+            buffer_manager,
+            file_manager,
+            recovery_manager,
+            buffer_list,
+            transaction_n: 0,
+        }
+    }
 
     pub fn commit(&mut self) {}
 
@@ -78,11 +93,19 @@ impl Transaction {
 
     pub fn get_int(&self, offset: i32) -> Option<i32> {}
 
-    pub fn get_string(&self,block_id: &BlockId, offset: usize) -> Option<String> {}
+    pub fn get_string(&self, block_id: &BlockId, offset: usize) -> Option<String> {}
 
-    pub fn set_int(&mut self, block_id: &BlockId, offset: i32, val: Option<i32>, should_log: bool) {}
+    pub fn set_int(&mut self, block_id: &BlockId, offset: i32, val: Option<i32>, should_log: bool) {
+    }
 
-    pub fn set_string(&mut self, block_id: &BlockId, offset: i32, val: Option<String>, should_log: bool) {}
+    pub fn set_string(
+        &mut self,
+        block_id: &BlockId,
+        offset: i32,
+        val: Option<String>,
+        should_log: bool,
+    ) {
+    }
 
     pub fn available_buffers(&self) -> Option<usize> {}
 
